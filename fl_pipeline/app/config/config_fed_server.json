@@ -1,0 +1,32 @@
+{
+  "format_version": 2,
+  "min_clients": 3,
+  "num_rounds": 20,
+  "server": {
+    "heart_beat_timeout": 600
+  },
+  "task_data_filters": [],
+  "task_result_filters": [],
+  "components": [
+    {
+      "id": "persistor",
+      "path": "nvflare.app_common.pt.pt_file_model_persistor.PTFileModelPersistor",
+      "args": {
+        "model": {
+          "path": "custom.densenet_square.DenseNetSquare"
+        }
+      }
+    }
+  ],
+  "workflows": [
+    {
+      "id": "geom_median_controller",
+      "path": "custom.aggregator.GeomMedianController",
+      "args": {
+        "num_rounds": 20,
+        "min_clients": 3,
+        "db_url": "postgresql://meshery:meshery@postgres:5432/fedlearn"
+      }
+    }
+  ]
+}

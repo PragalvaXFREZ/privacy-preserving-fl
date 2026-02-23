@@ -1,0 +1,20 @@
+{
+  "format_version": 2,
+  "executors": [
+    {
+      "tasks": ["train", "validate", "submit_model"],
+      "executor": {
+        "path": "custom.trainer.FedLearnTrainer",
+        "args": {
+          "local_epochs": 1,
+          "lr": 0.01,
+          "dp_epsilon": 1.0,
+          "dp_delta": 1e-5,
+          "batch_size": 32
+        }
+      }
+    }
+  ],
+  "task_result_filters": [],
+  "task_data_filters": []
+}

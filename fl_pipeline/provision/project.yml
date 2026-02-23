@@ -1,0 +1,34 @@
+api_version: 3
+name: fedlearn_healthcare
+description: Privacy-Preserving FL for Chest X-ray Pathology Detection
+
+participants:
+  - name: server
+    type: server
+    org: healthcare_fl
+    protocol: grpc
+    port: 8002
+  - name: trauma_center
+    type: client
+    org: hospital_a
+  - name: pulmonology_clinic
+    type: client
+    org: hospital_b
+  - name: general_hospital
+    type: client
+    org: hospital_c
+  - name: admin@healthcare_fl
+    type: admin
+    org: healthcare_fl
+    role: project_admin
+
+builders:
+  - path: nvflare.lighter.impl.cert.CertBuilder
+    args:
+      root_cert_cn: "Healthcare FL Root CA"
+  - path: nvflare.lighter.impl.workspace.WorkspaceBuilder
+    args:
+      template_file: master_template.yml
+  - path: nvflare.lighter.impl.static_file.StaticFileBuilder
+    args:
+      config_folder: config

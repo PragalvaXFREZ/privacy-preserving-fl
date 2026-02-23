@@ -1,0 +1,167 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: fedlearn-postgres
+    environment:
+      POSTGRES_USER: meshery
+      POSTGRES_PASSWORD: meshery
+      POSTGRES_DB: fedlearn
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meshery -d fedlearn"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fedlearn-net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fedlearn-backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: "postgresql://meshery:meshery@postgres:5432/fedlearn"
+      SECRET_KEY: "fedlearn-secret-key-change-in-production"
+      MODEL_PATH: "/app/models/global_model.pth"
+      UPLOAD_DIR: "/app/uploads"
+    volumes:
+      - model_storage:/app/models
+      - upload_storage:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - fedlearn-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: fedlearn-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: "http://backend:8000"
+    depends_on:
+      - backend
+    networks:
+      - fedlearn-net
+
+  fl-server:
+    build:
+      context: ./fl_pipeline
+      dockerfile: Dockerfile
+    container_name: fedlearn-fl-server
+    ports:
+      - "8002:8002"
+      - "8003:8003"
+    environment:
+      DATABASE_URL: "postgresql://meshery:meshery@postgres:5432/fedlearn"
+      FL_ROLE: "server"
+      MIN_CLIENTS: "3"
+      NUM_ROUNDS: "20"
+    volumes:
+      - fl_workspace:/app/workspace
+      - model_storage:/app/models
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - fedlearn-net
+
+  fl-client-1:
+    build:
+      context: ./fl_pipeline
+      dockerfile: Dockerfile
+    container_name: fedlearn-client-trauma
+    environment:
+      DATABASE_URL: "postgresql://meshery:meshery@postgres:5432/fedlearn"
+      FL_ROLE: "client"
+      FL_SERVER: "fl-server:8002"
+      CLIENT_NAME: "trauma_center"
+      CLIENT_ID: "trauma_center"
+      DATA_PROFILE: "non-iid-trauma"
+      DP_EPSILON: "1.0"
+      DP_DELTA: "1e-5"
+      LOCAL_EPOCHS: "1"
+      BATCH_SIZE: "32"
+    volumes:
+      - fl_workspace:/app/workspace
+      - dataset_storage:/app/data
+    depends_on:
+      - fl-server
+    command: ["python", "-m", "nvflare.private.fed.app.client.client_train"]
+    networks:
+      - fedlearn-net
+
+  fl-client-2:
+    build:
+      context: ./fl_pipeline
+      dockerfile: Dockerfile
+    container_name: fedlearn-client-pulmonology
+    environment:
+      DATABASE_URL: "postgresql://meshery:meshery@postgres:5432/fedlearn"
+      FL_ROLE: "client"
+      FL_SERVER: "fl-server:8002"
+      CLIENT_NAME: "pulmonology_clinic"
+      CLIENT_ID: "pulmonology_clinic"
+      DATA_PROFILE: "non-iid-pulmonology"
+      DP_EPSILON: "1.0"
+      DP_DELTA: "1e-5"
+      LOCAL_EPOCHS: "1"
+      BATCH_SIZE: "32"
+    volumes:
+      - fl_workspace:/app/workspace
+      - dataset_storage:/app/data
+    depends_on:
+      - fl-server
+    command: ["python", "-m", "nvflare.private.fed.app.client.client_train"]
+    networks:
+      - fedlearn-net
+
+  fl-client-3:
+    build:
+      context: ./fl_pipeline
+      dockerfile: Dockerfile
+    container_name: fedlearn-client-general
+    environment:
+      DATABASE_URL: "postgresql://meshery:meshery@postgres:5432/fedlearn"
+      FL_ROLE: "client"
+      FL_SERVER: "fl-server:8002"
+      CLIENT_NAME: "general_hospital"
+      CLIENT_ID: "general_hospital"
+      DATA_PROFILE: "non-iid-general"
+      DP_EPSILON: "1.0"
+      DP_DELTA: "1e-5"
+      LOCAL_EPOCHS: "1"
+      BATCH_SIZE: "32"
+    volumes:
+      - fl_workspace:/app/workspace
+      - dataset_storage:/app/data
+    depends_on:
+      - fl-server
+    command: ["python", "-m", "nvflare.private.fed.app.client.client_train"]
+    networks:
+      - fedlearn-net
+
+volumes:
+  pgdata:
+  model_storage:
+  upload_storage:
+  fl_workspace:
+  dataset_storage:
+
+networks:
+  fedlearn-net:
+    driver: bridge
