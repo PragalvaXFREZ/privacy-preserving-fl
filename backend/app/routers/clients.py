@@ -13,7 +13,7 @@ from app.utils.security import get_current_user
 router = APIRouter(prefix="/clients", tags=["Clients"])
 
 
-@router.get("/", response_model=List[ClientWithTrust])
+@router.get("", response_model=List[ClientWithTrust])
 def list_clients(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),

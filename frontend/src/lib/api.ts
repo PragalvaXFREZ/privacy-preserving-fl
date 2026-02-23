@@ -66,7 +66,11 @@ async function apiFetch<T>(
     let detail = "An unexpected error occurred";
     try {
       const errorData = await response.json();
-      detail = errorData.detail || JSON.stringify(errorData);
+      detail = typeof errorData.detail === "string"
+        ? errorData.detail
+        : Array.isArray(errorData.detail)
+          ? errorData.detail.map((e: any) => e.msg).join(", ")
+          : JSON.stringify(errorData);
     } catch {
       detail = response.statusText;
     }
@@ -86,23 +90,19 @@ export async function login(
   email: string,
   password: string
 ): Promise<Token> {
-  const formData = new URLSearchParams();
-  formData.append("username", email);
-  formData.append("password", password);
-
   const response = await fetch(`${API_BASE}/auth/login`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: formData.toString(),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
   });
 
   if (!response.ok) {
     let detail = "Login failed";
     try {
       const errorData = await response.json();
-      detail = errorData.detail || detail;
+      detail = typeof errorData.detail === "string"
+        ? errorData.detail
+        : "Invalid email or password";
     } catch {
       detail = response.statusText;
     }
@@ -126,7 +126,7 @@ export async function register(data: RegisterData): Promise<User> {
 // ---------- Clients ----------
 
 export async function getClients(): Promise<Client[]> {
-  return apiFetch<Client[]>("/clients/");
+  return apiFetch<Client[]>("/clients");
 }
 
 export async function getClient(id: number): Promise<Client> {
