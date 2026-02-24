@@ -39,6 +39,14 @@ from .selective_he import SelectiveHE
 
 logger = logging.getLogger(__name__)
 
+# Simulator uses generic site names (site-1, site-2, ...).
+# Map them to the actual client data directory names.
+SITE_NAME_MAP = {
+    "site-1": "trauma_center",
+    "site-2": "pulmonology_clinic",
+    "site-3": "general_hospital",
+}
+
 
 class FedLearnTrainer(Executor):
     """Client-side executor for Privacy-Preserving Federated Learning.
@@ -66,7 +74,7 @@ class FedLearnTrainer(Executor):
         dp_delta: float = 1e-5,
         batch_size: int = 32,
         max_grad_norm: float = 1.0,
-        data_root: str = "/data",
+        data_root: str = "/app/data",
     ) -> None:
         super().__init__()
 
@@ -397,6 +405,8 @@ class FedLearnTrainer(Executor):
             return
 
         client_name = fl_ctx.get_identity_name()
+        # Map simulator site names to actual client data directories
+        client_name = SITE_NAME_MAP.get(client_name, client_name)
         client_data_dir = os.path.join(self.data_root, client_name)
 
         if not os.path.isdir(client_data_dir):
@@ -407,8 +417,10 @@ class FedLearnTrainer(Executor):
             return
 
         try:
-            from .data_splitter import ChestXrayDataset
+            from data.data_splitter import ChestXrayDataset
             from torchvision import transforms
+            num_workers = int(os.getenv("DATALOADER_NUM_WORKERS", "0"))
+            pin_memory = torch.cuda.is_available()
 
             transform = transforms.Compose([
                 transforms.Resize((224, 224)),
@@ -433,8 +445,8 @@ class FedLearnTrainer(Executor):
                     train_ds,
                     batch_size=self.batch_size,
                     shuffle=True,
-                    num_workers=2,
-                    pin_memory=True,
+                    num_workers=num_workers,
+                    pin_memory=pin_memory,
                 )
 
             if os.path.exists(val_csv) and os.path.isdir(image_dir):
@@ -447,8 +459,8 @@ class FedLearnTrainer(Executor):
                     val_ds,
                     batch_size=self.batch_size,
                     shuffle=False,
-                    num_workers=2,
-                    pin_memory=True,
+                    num_workers=num_workers,
+                    pin_memory=pin_memory,
                 )
 
             logger.info(

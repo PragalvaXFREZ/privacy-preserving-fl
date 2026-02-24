@@ -14,14 +14,14 @@ This controller orchestrates the federated learning rounds:
 import time
 import logging
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict
 
-from nvflare.apis.controller_spec import Controller, Task, ClientTask
+from nvflare.apis.impl.controller import Controller
+from nvflare.apis.controller_spec import Task
+from nvflare.apis.dxo import DXO, DataKind, from_shareable
 from nvflare.apis.fl_context import FLContext
 from nvflare.apis.signal import Signal
-from nvflare.apis.shareable import Shareable, make_reply
-from nvflare.apis.fl_constant import ReturnCode, FLContextKey
-from nvflare.app_common.abstract.model import make_model_learnable, model_learnable_to_dict
+from nvflare.apis.fl_constant import ReturnCode
 
 from .geometric_median import GeometricMedianAggregator
 from .db_writer import DBWriter
@@ -73,11 +73,14 @@ class GeomMedianController(Controller):
                     started_at=round_start,
                 )
 
-            # Create train task and broadcast
-            task = Task(name="train", data=Shareable())
-            if self.global_model_weights:
-                task.data["weights"] = self.global_model_weights
-            task.data["round_number"] = round_num
+            # Create train task and broadcast as DXO weights shareable.
+            # Trainer uses `from_shareable()` and expects DXO content.
+            task_data = DXO(
+                data_kind=DataKind.WEIGHTS,
+                data=self.global_model_weights or {},
+            ).to_shareable()
+            task_data["round_number"] = round_num
+            task = Task(name="train", data=task_data)
 
             self.broadcast_and_wait(
                 task=task,
@@ -92,15 +95,40 @@ class GeomMedianController(Controller):
             for client_task in task.client_tasks:
                 result = client_task.result
                 if result and result.get_return_code() == ReturnCode.OK:
+                    try:
+                        dxo = from_shareable(result)
+                        if dxo.data_kind != DataKind.WEIGHTS:
+                            logger.warning(
+                                "Skipping result from %s: unexpected data_kind=%s",
+                                client_task.client.name,
+                                dxo.data_kind,
+                            )
+                            continue
+                        weights = dxo.data or {}
+                        meta = dxo.meta or {}
+                    except Exception as e:
+                        logger.warning(
+                            "Skipping result from %s: invalid DXO payload (%s)",
+                            client_task.client.name,
+                            e,
+                        )
+                        continue
+
+                    body_weights = {
+                        k: v for k, v in weights.items() if not k.startswith("classifier.")
+                    }
+                    head_weights = {
+                        k: v for k, v in weights.items() if k.startswith("classifier.")
+                    }
                     client_results.append({
                         "client_name": client_task.client.name,
-                        "body_weights": result.get("body_weights", {}),
-                        "head_weights": result.get("head_weights", {}),
+                        "body_weights": body_weights,
+                        "head_weights": head_weights,
                         "meta": {
-                            "local_loss": result.get("local_loss", 0.0),
-                            "local_auc": result.get("local_auc", 0.0),
-                            "num_samples": result.get("num_samples", 0),
-                            "encryption_status": result.get("encryption_status", "plaintext"),
+                            "local_loss": meta.get("local_loss", 0.0),
+                            "local_auc": meta.get("local_auc", 0.0),
+                            "num_samples": meta.get("num_samples", 0),
+                            "encryption_status": meta.get("encryption_status", "encrypted"),
                         },
                     })
 
@@ -124,8 +152,14 @@ class GeomMedianController(Controller):
                 for key in head_updates[0]:
                     stacked = [h[key] for h in head_updates if key in h]
                     if stacked:
-                        import torch
-                        aggregated_head[key] = torch.stack(stacked).mean(dim=0)
+                        # When selective HE is enabled, head values are bytes.
+                        # We can't average ciphertext here without shared HE context,
+                        # so keep the first available encrypted head tensor.
+                        if isinstance(stacked[0], bytes):
+                            aggregated_head[key] = stacked[0]
+                        else:
+                            import torch
+                            aggregated_head[key] = torch.stack(stacked).mean(dim=0)
 
             # Update global model
             self.global_model_weights = {**aggregated_body, **aggregated_head}
